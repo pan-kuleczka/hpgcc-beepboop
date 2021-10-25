@@ -1,6 +1,14 @@
 #include <hpgcc49.h>
 
-const char *programInfo = "BEEPBOOP.C v0.7.6\nMADE BY PAN-KULECZKA USING HPGCC\n";
+const char *programInfo = "BEEPBOOP.C v0.8\nMADE BY PAN-KULECZKA USING HPGCC\n";
+
+struct Note
+{
+	char a4Offset;
+	float durationBeats;
+};
+
+typedef struct Note Note;
 
 const float A4_FREQ = 440;
 const float NOTE_FREQ_INTERVAL = 1.059463;
@@ -22,35 +30,22 @@ float getFrequency(int a4Offset)
 		return A4_FREQ / multiplier;
 }
 
-typedef struct
+unsigned long long getTicks(Note note)
 {
-	char isPause;
-	int a4Offset;
-	float duration;
-} Note;
-
-void playNote(Note note, float durationMult)
-{
-	if (note.isPause)
-		printf("PAUSE %.3f s\n", note.duration * durationMult);
-	else
-		printf("NOTE %.3f Hz %.3f s\n", getFrequency(note.a4Offset), note.duration * durationMult);
-
-	if (note.isPause)
-		sys_sleep(note.duration * durationMult * 1000);
-	else
-		kos_beep(getFrequency(note.a4Offset), note.duration * 1000 * durationMult, 2);
+	return (unsigned long long)((double)1e9 * note.durationBeats);
 }
 
-char isNote(char c)
-{
-	return (c >= 'A' && c <= 'G') || (c >= 'a' && c <= 'g') || (c == 'z') || (c == 'x');
-}
+#define OFFSET_NOT_A_NOTE 0x7f
+#define OFFSET_PAUSE 0x80
 
-int getNoteOffset(char c)
+char getNoteA4Offset(char c)
 {
 	switch (c)
 	{
+	case 'z':
+		return OFFSET_PAUSE;
+	case 'x':
+		return OFFSET_PAUSE;
 	case 'C':
 		return -21;
 	case 'D':
@@ -80,91 +75,214 @@ int getNoteOffset(char c)
 	case 'b':
 		return 2;
 	default:
-		return 0;
+		return OFFSET_NOT_A_NOTE;
 	}
 }
 
-unsigned int getNoteCount(FILE *fp)
+struct File
 {
+	FILE *filePtr;
+	unsigned int ptrPosition;
+};
+
+typedef struct File File;
+
+int nextFileChar(File *f)
+{
+	int c = fgetc(f->filePtr);
+	if (c > -1)
+		++f->ptrPosition;
+	return c;
+}
+
+int moveFilePtr(File *f, int offset, int whence)
+{
+	if (whence == SEEK_END)
+		return -1;
+	int ret = fseek(f->filePtr, offset, whence);
+	if (!ret)
+	{
+		switch (whence)
+		{
+		case SEEK_SET:
+			f->ptrPosition = offset;
+			break;
+		case SEEK_CUR:
+			f->ptrPosition += offset;
+			break;
+		default:
+			break;
+		}
+	}
+	return ret;
+}
+
+int fileCharAt(File *f, unsigned int pos)
+{
+	int currentPos = f->ptrPosition;
+	int result = moveFilePtr(f, pos, SEEK_SET);
+	int c = nextFileChar(f);
+	moveFilePtr(f, currentPos, SEEK_SET);
+
+	if (result != 0)
+		return -1;
+	return c;
+}
+
+unsigned int filePtrTell(File *f)
+{
+	return f->ptrPosition;
+}
+
+void skipToNextLine(File *f)
+{
+	int c;
+	do
+	{
+		c = nextFileChar(f);
+	} while (c > -1 && c != '\n');
+}
+
+int moveToNextCurrentLineChar(File *f, char searched)
+{
+	int c = nextFileChar(f);
+	while (c != '%' && c != '\n' && c > -1 && c != searched)
+		c = nextFileChar(f);
+	if (c == '%' || c == '\n' || c < 0)
+		return -1;
+	moveFilePtr(f, -1, SEEK_CUR);
+	return 0;
+}
+
+int moveToNextCurrentLineDigit(File *f)
+{
+	int c = nextFileChar(f);
+	while (c != '%' && c != '\n' && c > -1 && !isdigit(c))
+		c = nextFileChar(f);
+	if (c == '%' || c == '\n' || c < 0)
+		return -1;
+	moveFilePtr(f, -1, SEEK_CUR);
+	return 0;
+}
+
+int nextMusicChar(File *f)
+{
+	int c;
+	for (;;)
+	{
+		c = nextFileChar(f);
+
+		if (c < 0)
+			break;
+		
+		if (c == '%')
+			skipToNextLine(f);
+		else if (fileCharAt(f, filePtrTell(f)) == ':')
+		{
+			// may be the beginning of a tag
+			if (filePtrTell(f) == 1 || fileCharAt(f, filePtrTell(f) - 2) == '\n')
+				skipToNextLine(f);
+			else
+				break;
+		}
+		else
+			break;
+	}
+
+	return c;
+}
+
+int moveToNextTag(File *f)
+{
+	int c;
+	for (;;)
+	{
+		c = nextFileChar(f);
+		if (c < 0)
+			return -1;
+
+		if (c == '%')
+			skipToNextLine(f);
+		else if (c == ':')
+		{
+			if (filePtrTell(f) == 2)
+			{
+				moveFilePtr(f, 0, SEEK_SET);
+				return 0;
+			}
+			else if (filePtrTell(f) > 2)
+			{
+				int c2 = fileCharAt(f, filePtrTell(f) - 3);
+				if (c2 == '\n')
+				{
+					moveFilePtr(f, -2, SEEK_CUR);
+					return 0;
+				}
+			}
+		}
+	}
+}
+
+unsigned int getNoteCount(File *f)
+{
+	moveFilePtr(f, 0, SEEK_SET);
 	unsigned int count = 0;
-	char isInBracket = 0;
 
 	for (;;)
 	{
-		int c = fgetc(fp);
+		int c = nextMusicChar(f);
 		if (c < 0)
 			break;
-		if (c == '[')
-			count++, isInBracket = 1;
-		else if (c == ']')
-			isInBracket = 0;
-		else if (!isInBracket)
-			count += isNote(c);
+		if (getNoteA4Offset(c) != OFFSET_NOT_A_NOTE)
+			++count;
 	}
 
 	return count;
 }
 
-void separateIntoNotes(FILE *fp, Note *noteArray, int baseShift)
+int parse(File *f, char *groupArray, Note *noteArray, int baseNoteShift)
 {
-	Note *notePtr = noteArray;
-	int changeAccumulator = 0;
+	moveFilePtr(f, 0, SEEK_SET);
+
+	Note *nextFreeNote = noteArray;
+	char *nextFreeGroupField = groupArray;
 
 	char isInBracket = 0;
-	char firstNoteInBracket = 1;
+	int shiftAccumulator = 0;
 
-	int c = fgetc(fp);
-	if (c < 0)
-		return;
+	int c = nextMusicChar(f);
 
 	for (;;)
 	{
-		if (c == '[')
-		{
-			isInBracket = 1;
-			firstNoteInBracket = 1;
-			c = fgetc(fp);
-			if (c < 0)
-				return;
-		}
-		else if (c == ']')
-		{
-			isInBracket = 0;
-			if (!firstNoteInBracket)
-				notePtr++;
-			c = fgetc(fp);
-			if (c < 0)
-				return;
-		}
+		if (c < 0)
+			return 0;
 
-		else if (isNote(c))
+		if (getNoteA4Offset(c) != OFFSET_NOT_A_NOTE)
 		{
-			Note note;
-			note.isPause = (c == 'z') || (c == 'x');
-			note.a4Offset = getNoteOffset(c) + changeAccumulator + baseShift;
-			changeAccumulator = 0;
+			// c is a note/pause
+			int a4offset = getNoteA4Offset(c);
+			shiftAccumulator += baseNoteShift;
 
-			c = fgetc(fp);
-			if (c < 0)
-				return;
-
-			while (c == ',' || c == '\'')
+			for (;;)
 			{
+				c = nextMusicChar(f);
 				if (c == ',')
-					note.a4Offset -= 12;
+					shiftAccumulator -= 12;
+				else if (c == '\'')
+					shiftAccumulator += 12;
 				else
-					note.a4Offset += 12;
-				c = fgetc(fp);
+					break;
 			}
 
 			float duration = 1.0f;
+
 			if (isdigit(c))
 				duration = 0.0f;
 
 			while (isdigit(c))
 			{
 				duration = 10.0f * duration + (c - '0');
-				c = fgetc(fp);
+				c = nextMusicChar(f);
 			}
 
 			if (c == '/')
@@ -173,14 +291,14 @@ void separateIntoNotes(FILE *fp, Note *noteArray, int baseShift)
 				while (c == '/')
 				{
 					slashCount++;
-					c = fgetc(fp);
+					c = nextMusicChar(f);
 				}
 
 				float divisor = 0;
 				while (isdigit(c))
 				{
 					divisor = 10.0f * divisor + (c - '0');
-					c = fgetc(fp);
+					c = nextMusicChar(f);
 				}
 
 				if (divisor == 0.0f)
@@ -189,46 +307,94 @@ void separateIntoNotes(FILE *fp, Note *noteArray, int baseShift)
 				duration /= divisor;
 			}
 
-			note.duration = duration;
+			Note note;
 
-			if (isInBracket)
-			{
-				if (firstNoteInBracket)
-					*notePtr = note;
-				else
-				{
-					notePtr->duration = min(notePtr->duration, note.duration);
-					if (notePtr->isPause)
-					{
-						notePtr->isPause = note.isPause;
-						notePtr->a4Offset = note.a4Offset;
-					}
-					else if (!note.isPause)
-						notePtr->a4Offset = max(notePtr->a4Offset, note.a4Offset);
-				}
-			}
-			else
-				*notePtr = note;
+			note.a4Offset = a4offset;
 
-			firstNoteInBracket = 0;
+			if (note.a4Offset != OFFSET_PAUSE)
+				note.a4Offset += shiftAccumulator;
 
-			if (!isInBracket)
-				notePtr++;
+			shiftAccumulator = 0;
+
+			note.durationBeats = duration;
+
+			*nextFreeNote = note;
+			nextFreeNote++;
+
+			*nextFreeGroupField = isInBracket;
+			nextFreeGroupField++;
 		}
-
 		else
 		{
-			if (c < 0)
-				return;
-			if (c == '^')
-				changeAccumulator++;
+			if (c == '[')
+				isInBracket = 1;
+			else if (c == ']')
+				*(nextFreeGroupField - 1) = 0;
+
+			else if (c == '^')
+				shiftAccumulator++;
+
 			else if (c == '=')
 				;
+
 			else if (c == '_')
-				changeAccumulator--;
-			c = fgetc(fp);
+				shiftAccumulator--;
+
+			c = nextMusicChar(f);
 		}
 	}
+
+	return 0;
+}
+
+float getBeatLength(File *f)
+{
+	int c;
+	unsigned int tA, tB, tC; // three parts of tA/tB=tC
+
+	if (moveToNextCurrentLineDigit(f) < 0)
+		return -1;
+
+	tA = 0;
+	c = nextFileChar(f);
+	while (isdigit(c))
+		tA = tA * 10 + (c - '0'), c = nextFileChar(f);
+	moveFilePtr(f, -1, SEEK_CUR);
+
+	if (moveToNextCurrentLineChar(f, '/') < 0)
+	{
+		// file uses deprecated 'Q: <X>' notation
+		return 60.0f / tA;
+	}
+
+	if (moveToNextCurrentLineDigit(f) < 0)
+		return -1;
+
+	tB = 0;
+	c = nextFileChar(f);
+	while (isdigit(c))
+		tB = tB * 10 + (c - '0'), c = nextFileChar(f);
+	moveFilePtr(f, -1, SEEK_CUR);
+
+	if (moveToNextCurrentLineChar(f, '=') < 0)
+		return -1;
+	if (moveToNextCurrentLineDigit(f) < 0)
+		return -1;
+
+	tC = 0;
+	c = nextFileChar(f);
+	while (isdigit(c))
+		tC = tC * 10 + (c - '0'), c = nextFileChar(f);
+	moveFilePtr(f, -1, SEEK_CUR);
+
+	return (tB * 60.0f) / (tA * tC);
+}
+
+void playNote(Note note, float bps)
+{
+	if (note.a4Offset == OFFSET_PAUSE || note.a4Offset == OFFSET_NOT_A_NOTE)
+		return;
+	kos_beep(getFrequency(note.a4Offset), note.durationBeats / bps * 1000, 2);
 }
 
 int main()
@@ -236,25 +402,25 @@ int main()
 	char *filename;
 	SAT_STACK_ELEMENT e;
 	SAT_STACK_DATA d;
-	FILE *fp;
+	File f;
 
 	unsigned int noteCount;
+	char *groupFlags;
 	Note *notes;
 
 	sat_get_stack_element(1, &e);
 	sat_decode_stack_element(&d, &e);
+
 	if (d.type == SAT_DATA_TYPE_STRING)
-	{
 		filename = str_unquote(d.sval, '\'');
-	}
 	else
 	{
-		sat_stack_push_string("Missing filename");
+		sat_stack_push_string("Missing filename to open");
 		sat_push_real(1);
 		return 0;
 	}
 
-	if ((fp = fopen(filename, "r")) == NULL)
+	if ((f.filePtr = fopen(filename, "r")) == NULL)
 	{
 		char errormsg[30];
 		char fname[13];
@@ -267,77 +433,112 @@ int main()
 		sat_push_real(1);
 		return 0;
 	}
+	f.ptrPosition = 0;
 
 	clear_screen();
 	printf(programInfo);
 	printf("Loading %s ...\n", filename);
 
-	long double tempoModifier = 0.5;
+	// Loading song tags
 
-	unsigned int musicContentsIndex = 0;
-	while (!fp->eof_state)
+	float beatLength = -1;
+	char songTitle[30];
+	songTitle[0] = 0;
+
+	while (moveToNextTag(&f) == 0)
 	{
-		int c0 = fgetc(fp);
-		int c1 = fgetc(fp);
-		musicContentsIndex += 2;
+		int tagChar = nextFileChar(&f); // letter before ':'
+		nextFileChar(&f);				// skipping the ':'
+		int c = nextFileChar(&f);
 
-		if (c1 != ':')
+		switch (tagChar)
 		{
-			fseek(fp, -1, SEEK_CUR);
-			musicContentsIndex--;
+		case 'Q':
+			beatLength = getBeatLength(&f);
+			if (beatLength < 0)
+			{
+				// bad tag
+				sat_stack_push_string("Bad \"Q:\" (tempo) tag");
+				sat_push_real(1);
+				return 0;
+			}
+			break;
+
+		case 'T':
+			while (c == ' ')
+				c = nextFileChar(&f);
+
+			unsigned int lenCtr = 0;
+			while (lenCtr < 29 && c != '\n' && c != '%' && c > -1)
+			{
+				songTitle[lenCtr] = c;
+				lenCtr++;
+				c = nextFileChar(&f);
+			}
+			songTitle[lenCtr] = 0;
+			break;
+
+		default:
 			break;
 		}
-
-		if (c0 == 'Q')
-		{
-			musicContentsIndex++, c0 = fgetc(fp);
-			float tempoA = 0, tempoB = 0, tempoC = 0;
-			while (!isdigit(c0))
-				musicContentsIndex++, c0 = fgetc(fp);
-			while (isdigit(c0))
-				tempoA = tempoA * 10.0f + c0 - '0', musicContentsIndex++, c0 = fgetc(fp);
-			while (c0 != '/')
-				musicContentsIndex++, c0 = fgetc(fp);
-			musicContentsIndex++, c0 = fgetc(fp);
-			while (!isdigit(c0))
-				musicContentsIndex++, c0 = fgetc(fp);
-			while (isdigit(c0))
-				tempoB = tempoB * 10.0f + c0 - '0', musicContentsIndex++, c0 = fgetc(fp);
-			while (c0 != '=')
-				musicContentsIndex++, c0 = fgetc(fp);
-			musicContentsIndex++, c0 = fgetc(fp);
-			while (!isdigit(c0))
-				musicContentsIndex++, c0 = fgetc(fp);
-			while (isdigit(c0))
-				tempoC = tempoC * 10.0f + c0 - '0', musicContentsIndex++, c0 = fgetc(fp);
-
-			tempoModifier = 60.0f * tempoB / (tempoA * tempoC);
-		}
-
-		while (c0 != '\n' && c0 >= 0)
-			musicContentsIndex++, c0 = fgetc(fp);
 	}
 
-	noteCount = getNoteCount(fp);
-	fseek(fp, musicContentsIndex, SEEK_SET);
+	printf("Loaded file tags ...\n");
 
+	if (beatLength < 0)
+	{
+		// no tempo tag
+		sat_stack_push_string("Missing \"Q:\" (tempo) tag");
+		sat_push_real(1);
+		return 0;
+	}
+
+	moveFilePtr(&f, 0, SEEK_SET);
+	noteCount = getNoteCount(&f);
+	groupFlags = malloc(sizeof(char) * noteCount);
 	notes = malloc(sizeof(Note) * noteCount);
-	separateIntoNotes(fp, notes, 12);
 
-	fclose(fp);
+	printf("%d\n", noteCount);
+
+	moveFilePtr(&f, 0, SEEK_SET);
+	parse(&f, groupFlags, notes, -12);
+
+	fclose(f.filePtr);
 
 	printf("Done!\n");
-	int i;
-
-	float totalTime = 0.0f;
-	for (i = 0; i < noteCount; ++i)
-		totalTime += notes[i].duration * tempoModifier;
-
-	printf("%d notes, %.1f seconds\n--------------------------------\n", noteCount, totalTime);
+	if (strlen(songTitle))
+		printf("Title: %s\n", songTitle);
 
 	sys_waitRTCTicks(12);
 
-	for (i = 0; i < noteCount; ++i)
+	// Play notes
+
+	sys_timer_t timer = SYS_TIMER_INITIALIZER_NUM(3);
+	sys_updateTimer(&timer);
+
+	//unsigned int halfPeriodTicks = 5e8 / tone;
+
+	/*for (;;)
+	{
+	}
+
+	unsigned long long nextSwitchTick = timer.current + halfPeriodTicks;
+	unsigned long long finishTick = timer.current + (duration * (unsigned int)1e9);
+
+	while (timer.current < finishTick)
+	{
+		*GPBDAT = 0x4; //beeper on
+		while (timer.current < nextSwitchTick)
+			sys_updateTimer(&timer);
+		nextSwitchTick += halfPeriodTicks;
+
+		*GPBDAT = 0; //beeper off
+		while (timer.current < nextSwitchTick)
+			sys_updateTimer(&timer);
+		nextSwitchTick += halfPeriodTicks;
+	}*/
+
+	/*for (i = 0; i < noteCount; ++i)
 	{
 		playNote(notes[i], tempoModifier);
 		if (keyb_isAnyKeyPressed())
@@ -345,11 +546,10 @@ int main()
 			sat_push_real(0);
 			return 0;
 		}
-	}
+	}*/
 
-	beep();
+	printf("FINISHED.\n");
 	WAIT_CANCEL;
-
 	sat_push_real(0);
 	return 0;
 }
