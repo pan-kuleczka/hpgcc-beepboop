@@ -1,4 +1,5 @@
 #include <hpgcc49.h>
+#include "file.h"
 
 const char *programInfo = "BEEPBOOP.C v0.8\nMADE BY PAN-KULECZKA USING HPGCC\n";
 
@@ -79,70 +80,6 @@ char getNoteA4Offset(char c)
 	}
 }
 
-struct File
-{
-	FILE *filePtr;
-	unsigned int ptrPosition;
-};
-
-typedef struct File File;
-
-int nextFileChar(File *f)
-{
-	int c = fgetc(f->filePtr);
-	if (c > -1)
-		++f->ptrPosition;
-	return c;
-}
-
-int moveFilePtr(File *f, int offset, int whence)
-{
-	if (whence == SEEK_END)
-		return -1;
-	int ret = fseek(f->filePtr, offset, whence);
-	if (!ret)
-	{
-		switch (whence)
-		{
-		case SEEK_SET:
-			f->ptrPosition = offset;
-			break;
-		case SEEK_CUR:
-			f->ptrPosition += offset;
-			break;
-		default:
-			break;
-		}
-	}
-	return ret;
-}
-
-int fileCharAt(File *f, unsigned int pos)
-{
-	int currentPos = f->ptrPosition;
-	int result = moveFilePtr(f, pos, SEEK_SET);
-	int c = nextFileChar(f);
-	moveFilePtr(f, currentPos, SEEK_SET);
-
-	if (result != 0)
-		return -1;
-	return c;
-}
-
-unsigned int filePtrTell(File *f)
-{
-	return f->ptrPosition;
-}
-
-void skipToNextLine(File *f)
-{
-	int c;
-	do
-	{
-		c = nextFileChar(f);
-	} while (c > -1 && c != '\n');
-}
-
 int moveToNextCurrentLineChar(File *f, char searched)
 {
 	int c = nextFileChar(f);
@@ -171,10 +108,11 @@ int nextMusicChar(File *f)
 	for (;;)
 	{
 		c = nextFileChar(f);
+		c2 = nextFileChar(f);
 
 		if (c < 0)
 			break;
-		
+
 		if (c == '%')
 			skipToNextLine(f);
 		else if (fileCharAt(f, filePtrTell(f)) == ':')
