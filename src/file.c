@@ -1,31 +1,109 @@
 #include "file.h"
 #include <hpgcc49.h>
 
-void init(File *f){
+void init(File *f)
+{
+	f->fileSize = 0;
+	while (fgetc(f->filePtr) > -1)
+		++f->fileSize;
+	rewind(f->filePtr);
+
 	f->ptrPosition = 0;
 	f->bufIt = 0;
-	fgets(f->buf, FILE_BUFFER_SIZE, f->filePtr);
 }
 
 int nextChar(File *f)
 {
-    
-    f->bufIt++;
-	if (f->bufIt == FILE_BUFFER_SIZE)
+	f->buf[f->bufIt] = fgetc(f->filePtr);
+	int c = f->buf[f->bufIt];
+
+	if (c > -1)
 	{
-        memcpy(f->buf, f->buf + FILE_BUFFER_SIZE - FILE_BUFFER_MIDDLE, FILE_BUFFER_MIDDLE);
-		fgets(f->buf + FILE_BUFFER_MIDDLE, FILE_BUFFER_SIZE - FILE_BUFFER_MIDDLE, f->filePtr);
-		f->bufIt = FILE_BUFFER_MIDDLE;
+		++f->bufIt;
+		++f->ptrPosition;
+
+		if (f->bufIt == FILE_BUFFER_SIZE)
+		{
+			memcpy(f->buf, f->buf + FILE_BUFFER_SIZE - MIN_FILE_BUFFER_MEMORY, MIN_FILE_BUFFER_MEMORY);
+			f->bufIt = MIN_FILE_BUFFER_MEMORY;
+		}
 	}
 
-    int c = f->buf[f->bufIt];
-	if(c > -1) ++f->ptrPosition;
-
-    return c;
+	return c;
 }
 
-int prevChar(File *f){
-    
+int __getPos(File *f, int delta, int type)
+{
+	switch (type)
+	{
+	case SEEK_SET:
+		return delta;
+	case SEEK_CUR:
+		return f->ptrPosition + delta;
+	case SEEK_END:
+		return f->fileSize + delta;
+	default:
+		return -1;
+	}
+}
+
+int __moveFilePtr(File *f, int position)
+{
+	if (position < 0 || position >= f->fileSize)
+		return -1;
+
+	int bufBegin = f->ptrPosition - f->bufIt;
+	int delta = position - (bufBegin + f->bufIt);
+
+	f->ptrPosition = position;
+
+	if (position < bufBegin)
+	{
+		int lookbehind = min(position, FILE_SEEK_BACKWARD_LOOKBEHIND);
+		fseek(f->filePtr, position - lookbehind, SEEK_SET);
+		fgets(f->buf, lookbehind, f->filePtr);
+		f->bufIt = lookbehind;
+	}
+
+	else if (position >= bufBegin + FILE_BUFFER_SIZE)
+	{
+		fseek(f->filePtr, position, SEEK_SET);
+		f->bufIt = 0;
+	}
+
+	else if (delta < 0)
+		f->bufIt += delta;
+	else
+	{
+		fgets(f->buf + f->bufIt, delta, f->filePtr);
+		f->bufIt += delta;
+	}
+
+	return 0;
+}
+
+int moveFilePtr(File *f, int delta, int type)
+{
+	return __moveFilePtr(f, __getPos(f, delta, type));
+}
+
+int prevChar(File *f)
+{
+	if (moveFilePtr(f, -2, SEEK_CUR) > -1)
+		return nextChar(f);
+	else
+		return -1;
+}
+
+int getCharAt(File *f, int delta, int type)
+{
+	unsigned int cpos = f->ptrPosition;
+	int result = moveFilePtr(f, delta, type);
+	int c = nextChar(f);
+	__moveFilePtr(f, cpos);
+	if (result < 0)
+		return -1;
+	return c;
 }
 
 /*int nextFileChar(File *f)
