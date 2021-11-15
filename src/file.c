@@ -1,7 +1,7 @@
 #include "file.h"
 #include <hpgcc49.h>
 
-void init(File *f)
+void file_init(File *f)
 {
 	f->fileSize = 0;
 	while (fgetc(f->filePtr) > -1)
@@ -12,7 +12,12 @@ void init(File *f)
 	f->bufIt = 0;
 }
 
-int nextChar(File *f)
+int file_tell(File *f)
+{
+	return f->ptrPosition;
+}
+
+int file_getc(File *f)
 {
 	f->buf[f->bufIt] = fgetc(f->filePtr);
 	int c = f->buf[f->bufIt];
@@ -47,7 +52,7 @@ int __getPos(File *f, int delta, int type)
 	}
 }
 
-int __moveFilePtr(File *f, int position)
+int __file_seek(File *f, int position)
 {
 	if (position < 0 || position >= f->fileSize)
 		return -1;
@@ -82,93 +87,47 @@ int __moveFilePtr(File *f, int position)
 	return 0;
 }
 
-int moveFilePtr(File *f, int delta, int type)
+int file_seek(File *f, int delta, int type)
 {
-	return __moveFilePtr(f, __getPos(f, delta, type));
+	return __file_seek(f, __getPos(f, delta, type));
 }
 
-int prevChar(File *f)
+int file_prevc(File *f)
 {
-	if (moveFilePtr(f, -2, SEEK_CUR) > -1)
-		return nextChar(f);
+	if (file_seek(f, -2, SEEK_CUR) > -1)
+		return file_getc(f);
 	else
 		return -1;
 }
 
-int getCharAt(File *f, int delta, int type)
+int file_getcAt(File *f, int delta, int type)
 {
 	unsigned int cpos = f->ptrPosition;
-	int result = moveFilePtr(f, delta, type);
-	int c = nextChar(f);
-	__moveFilePtr(f, cpos);
+	int result = file_seek(f, delta, type);
+	int c = file_getc(f);
+	__file_seek(f, cpos);
 	if (result < 0)
 		return -1;
 	return c;
 }
 
-/*int nextFileChar(File *f)
+int file_skipTo(File *f, int (*stopFunction)(File *))
 {
-	int c = fgetc(f->filePtr);
-	if (c > -1)
-		++f->ptrPosition;
-	return c;
+	while (stopFunction(f) == 0)
+		if (file_tell(f) == f->fileSize)
+			return -1;
+	return 0;
 }
 
-int moveBack(File *f)
+int file_skipToChar(File *f, char c)
 {
-	if (f->ptrPosition > 0)
-	{
-		ungetc(f->filePtr);
-		f->ptrPosition--;
-		return 0;
-	}
-	return -1;
+	while (file_getc(f) != c)
+		if (file_tell(f) == f->fileSize)
+			return -1;
+	return 0;
 }
 
-int moveFilePtr(File *f, int offset, int whence)
+int file_skipToNewline(File *f)
 {
-	if (whence == SEEK_END)
-		return -1;
-	int ret = fseek(f->filePtr, offset, whence);
-	if (!ret)
-	{
-		switch (whence)
-		{
-		case SEEK_SET:
-			f->ptrPosition = offset;
-			break;
-		case SEEK_CUR:
-			f->ptrPosition += offset;
-			break;
-		default:
-			break;
-		}
-	}
-	return ret;
+	return file_skipToChar(f, '\n');
 }
-
-int fileCharAt(File *f, unsigned int pos)
-{
-	int currentPos = f->ptrPosition;
-	int result = moveFilePtr(f, pos, SEEK_SET);
-	int c = nextFileChar(f);
-	moveFilePtr(f, currentPos, SEEK_SET);
-
-	if (result != 0)
-		return -1;
-	return c;
-}
-
-unsigned int filePtrTell(File *f)
-{
-	return f->ptrPosition;
-}
-
-void skipToNextLine(File *f)
-{
-	int c;
-	do
-	{
-		c = nextFileChar(f);
-	} while (c > -1 && c != '\n');
-}*/

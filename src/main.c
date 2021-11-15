@@ -82,23 +82,23 @@ char getNoteA4Offset(char c)
 
 int moveToNextCurrentLineChar(File *f, char searched)
 {
-	int c = nextFileChar(f);
+	int c = file_getc(f);
 	while (c != '%' && c != '\n' && c > -1 && c != searched)
-		c = nextFileChar(f);
+		c = file_getc(f);
 	if (c == '%' || c == '\n' || c < 0)
 		return -1;
-	moveFilePtr(f, -1, SEEK_CUR);
+	file_seek(f, -1, SEEK_CUR);
 	return 0;
 }
 
 int moveToNextCurrentLineDigit(File *f)
 {
-	int c = nextFileChar(f);
+	int c = file_getc(f);
 	while (c != '%' && c != '\n' && c > -1 && !isdigit(c))
-		c = nextFileChar(f);
+		c = file_getc(f);
 	if (c == '%' || c == '\n' || c < 0)
 		return -1;
-	moveFilePtr(f, -1, SEEK_CUR);
+	file_seek(f, -1, SEEK_CUR);
 	return 0;
 }
 
@@ -107,18 +107,17 @@ int nextMusicChar(File *f)
 	int c;
 	for (;;)
 	{
-		c = nextFileChar(f);
-		c2 = nextFileChar(f);
+		c = file_getc(f);
 
 		if (c < 0)
 			break;
 
 		if (c == '%')
 			skipToNextLine(f);
-		else if (fileCharAt(f, filePtrTell(f)) == ':')
+		else if (file_getcAt(f, SEEK_CUR, 0) == ':')
 		{
 			// may be the beginning of a tag
-			if (filePtrTell(f) == 1 || fileCharAt(f, filePtrTell(f) - 2) == '\n')
+			if (file_tell(f) < 2 || file_getcAt(f, SEEK_CUR, -2) == '\n')
 				skipToNextLine(f);
 			else
 				break;
@@ -135,7 +134,7 @@ int moveToNextTag(File *f)
 	int c;
 	for (;;)
 	{
-		c = nextFileChar(f);
+		c = file_getc(f);
 		if (c < 0)
 			return -1;
 
@@ -143,17 +142,17 @@ int moveToNextTag(File *f)
 			skipToNextLine(f);
 		else if (c == ':')
 		{
-			if (filePtrTell(f) == 2)
+			if (file_tell(f) == 2)
 			{
-				moveFilePtr(f, 0, SEEK_SET);
+				file_seek(f, 0, SEEK_SET);
 				return 0;
 			}
-			else if (filePtrTell(f) > 2)
+			else if (file_tell(f) > 2)
 			{
-				int c2 = fileCharAt(f, filePtrTell(f) - 3);
+				int c2 = fileCharAt(f, file_tell(f) - 3);
 				if (c2 == '\n')
 				{
-					moveFilePtr(f, -2, SEEK_CUR);
+					file_seek(f, -2, SEEK_CUR);
 					return 0;
 				}
 			}
@@ -163,7 +162,7 @@ int moveToNextTag(File *f)
 
 unsigned int getNoteCount(File *f)
 {
-	moveFilePtr(f, 0, SEEK_SET);
+	file_seek(f, 0, SEEK_SET);
 	unsigned int count = 0;
 
 	for (;;)
@@ -180,7 +179,7 @@ unsigned int getNoteCount(File *f)
 
 int parse(File *f, char *groupArray, Note *noteArray, int baseNoteShift)
 {
-	moveFilePtr(f, 0, SEEK_SET);
+	file_seek(f, 0, SEEK_SET);
 
 	Note *nextFreeNote = noteArray;
 	char *nextFreeGroupField = groupArray;
@@ -294,10 +293,10 @@ float getBeatLength(File *f)
 		return -1;
 
 	tA = 0;
-	c = nextFileChar(f);
+	c = file_getc(f);
 	while (isdigit(c))
-		tA = tA * 10 + (c - '0'), c = nextFileChar(f);
-	moveFilePtr(f, -1, SEEK_CUR);
+		tA = tA * 10 + (c - '0'), c = file_getc(f);
+	file_seek(f, -1, SEEK_CUR);
 
 	if (moveToNextCurrentLineChar(f, '/') < 0)
 	{
@@ -309,10 +308,10 @@ float getBeatLength(File *f)
 		return -1;
 
 	tB = 0;
-	c = nextFileChar(f);
+	c = file_getc(f);
 	while (isdigit(c))
-		tB = tB * 10 + (c - '0'), c = nextFileChar(f);
-	moveFilePtr(f, -1, SEEK_CUR);
+		tB = tB * 10 + (c - '0'), c = file_getc(f);
+	file_seek(f, -1, SEEK_CUR);
 
 	if (moveToNextCurrentLineChar(f, '=') < 0)
 		return -1;
@@ -320,10 +319,10 @@ float getBeatLength(File *f)
 		return -1;
 
 	tC = 0;
-	c = nextFileChar(f);
+	c = file_getc(f);
 	while (isdigit(c))
-		tC = tC * 10 + (c - '0'), c = nextFileChar(f);
-	moveFilePtr(f, -1, SEEK_CUR);
+		tC = tC * 10 + (c - '0'), c = file_getc(f);
+	file_seek(f, -1, SEEK_CUR);
 
 	return (tB * 60.0f) / (tA * tC);
 }
@@ -385,9 +384,9 @@ int main()
 
 	while (moveToNextTag(&f) == 0)
 	{
-		int tagChar = nextFileChar(&f); // letter before ':'
-		nextFileChar(&f);				// skipping the ':'
-		int c = nextFileChar(&f);
+		int tagChar = file_getc(&f); // letter before ':'
+		file_getc(&f);				 // skipping the ':'
+		int c = file_getc(&f);
 
 		switch (tagChar)
 		{
@@ -404,14 +403,14 @@ int main()
 
 		case 'T':
 			while (c == ' ')
-				c = nextFileChar(&f);
+				c = file_getc(&f);
 
 			unsigned int lenCtr = 0;
 			while (lenCtr < 29 && c != '\n' && c != '%' && c > -1)
 			{
 				songTitle[lenCtr] = c;
 				lenCtr++;
-				c = nextFileChar(&f);
+				c = file_getc(&f);
 			}
 			songTitle[lenCtr] = 0;
 			break;
@@ -431,14 +430,14 @@ int main()
 		return 0;
 	}
 
-	moveFilePtr(&f, 0, SEEK_SET);
+	file_seek(&f, 0, SEEK_SET);
 	noteCount = getNoteCount(&f);
 	groupFlags = malloc(sizeof(char) * noteCount);
 	notes = malloc(sizeof(Note) * noteCount);
 
 	printf("%d\n", noteCount);
 
-	moveFilePtr(&f, 0, SEEK_SET);
+	file_seek(&f, 0, SEEK_SET);
 	parse(&f, groupFlags, notes, -12);
 
 	fclose(f.filePtr);

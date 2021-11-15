@@ -23,12 +23,18 @@ struct File
 
 typedef struct File File;
 
-void init(File *f);
+void file_init(File *f);
 
-int nextChar(File *f);
-int prevChar(File *f);
+int file_tell(File *f);
 
-int moveFilePtr(File *f, int delta, int type);
-int getCharAt(File *f, int delta, int type);
+int file_getc(File *f);
+int file_prevc(File *f);
+
+int file_seek(File *f, int delta, int type);
+int file_getcAt(File *f, int delta, int type);
+
+int file_skipTo(File *f, int (*stopFunction)(File *));
+int file_skipToChar(File *f, char c);
+int file_skipToNewline(File *f);
 
 #endif
