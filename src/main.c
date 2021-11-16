@@ -31,9 +31,9 @@ float getFrequency(int a4Offset)
 		return A4_FREQ / multiplier;
 }
 
-unsigned long long getTicks(Note note)
+unsigned long long getTicks(Note note, float beatLength)
 {
-	return (unsigned long long)((double)1e9 * note.durationBeats);
+	return (unsigned long long)((double)1e9 * beatLength * note.durationBeats);
 }
 
 #define OFFSET_NOT_A_NOTE 0x7f
@@ -266,7 +266,10 @@ int parse(File *f, char *groupArray, Note *noteArray, int baseNoteShift)
 			if (c == '[')
 				isInBracket = 1;
 			else if (c == ']')
+			{
 				*(nextFreeGroupField - 1) = 0;
+				isInBracket = 0;
+			}
 
 			else if (c == '^')
 				shiftAccumulator++;
@@ -280,6 +283,9 @@ int parse(File *f, char *groupArray, Note *noteArray, int baseNoteShift)
 			c = nextMusicChar(f);
 		}
 	}
+
+	if (isInBracket)
+		return -1;
 
 	return 0;
 }
@@ -438,8 +444,13 @@ int main()
 	printf("%d\n", noteCount);
 
 	file_seek(&f, 0, SEEK_SET);
-	parse(&f, groupFlags, notes, -12);
-
+	if (parse(&f, groupFlags, notes, -12) != 0)
+	{
+		// parser error
+		sat_stack_push_string("Parsing error");
+		sat_push_real(1);
+		return 0;
+	}
 	fclose(f.filePtr);
 
 	printf("Done!\n");
@@ -452,6 +463,57 @@ int main()
 
 	sys_timer_t timer = SYS_TIMER_INITIALIZER_NUM(3);
 	sys_updateTimer(&timer);
+
+	long long chordBeginTicks = 0;
+	long long chordEndTicks = 0;
+	int noteI = 0;
+
+	while (noteI < noteCount)
+	{
+		sys_updateTimer(&timer);
+		chordBeginTicks = timer.current;
+		chordEndTicks += getTicks(notes[noteI], beatLength);
+		do
+		{
+			sys_updateTimer(&timer);
+			long long cTicks = timer.current;
+			if (cTicks >= chordEndTicks)
+				break;
+			long long elapsedChordTicks = cTicks - chordBeginTicks;
+
+			Note bestCandidate;
+			bestCandidate.a4Offset = OFFSET_NOT_A_NOTE;
+
+			int i;
+			for (i = noteI; i == noteI || groupFlags[i - 1] == 1; ++i)
+				if (getTicks(notes[i], beatLength) > elapsedChordTicks)
+				{
+					if (bestCandidate.a4Offset == OFFSET_NOT_A_NOTE || bestCandidate.a4Offset == OFFSET_PAUSE)
+						bestCandidate = notes[i];
+					else if (notes[i].a4Offset != OFFSET_PAUSE && notes[i].a4Offset > bestCandidate.a4Offset)
+						bestCandidate = notes[i];
+				}
+
+			int playMs = (getTicks(bestCandidate, beatLength) - elapsedChordTicks) / (long long)1e6;
+
+			if (bestCandidate.a4Offset == OFFSET_NOT_A_NOTE)
+			{
+				// playback error
+				sat_stack_push_string("Playback error");
+				sat_push_real(1);
+				return 0;
+			}
+
+			if (bestCandidate.a4Offset == OFFSET_PAUSE)
+				sys_sleep(playMs);
+			else
+				kos_beep(getFrequency(bestCandidate.a4Offset), playMs, 2);
+		} while (timer.current < chordEndTicks);
+
+		while (groupFlags[noteI])
+			++noteI;
+		++noteI;
+	}
 
 	//unsigned int halfPeriodTicks = 5e8 / tone;
 
