@@ -18,7 +18,7 @@ struct File
 	unsigned int ptrPosition;
 	unsigned int fileSize;
 	int bufIt;
-	int buf[FILE_BUFFER_SIZE];
+	char buf[FILE_BUFFER_SIZE];
 };
 
 typedef struct File File;

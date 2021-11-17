@@ -1,0 +1,10 @@
+%%HP: T(3)A(R)F(.);
+\<< 
+    DUP "HPGCC/ABC/" SWAP +
+    "HPGCC/beepboop" 3 \->TAG EVAL
+    IF
+    THEN 
+        DOERR
+    END
+    DROP
+\>>

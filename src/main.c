@@ -113,12 +113,12 @@ int nextMusicChar(File *f)
 			break;
 
 		if (c == '%')
-			skipToNextLine(f);
+			file_skipToNewline(f);
 		else if (file_getcAt(f, SEEK_CUR, 0) == ':')
 		{
 			// may be the beginning of a tag
 			if (file_tell(f) < 2 || file_getcAt(f, SEEK_CUR, -2) == '\n')
-				skipToNextLine(f);
+				file_skipToNewline(f);
 			else
 				break;
 		}
@@ -139,7 +139,7 @@ int moveToNextTag(File *f)
 			return -1;
 
 		if (c == '%')
-			skipToNextLine(f);
+			file_skipToNewline(f);
 		else if (c == ':')
 		{
 			if (file_tell(f) == 2)
@@ -149,7 +149,7 @@ int moveToNextTag(File *f)
 			}
 			else if (file_tell(f) > 2)
 			{
-				int c2 = fileCharAt(f, file_tell(f) - 3);
+				int c2 = file_getcAt(f, -3, SEEK_CUR);
 				if (c2 == '\n')
 				{
 					file_seek(f, -2, SEEK_CUR);
@@ -483,6 +483,7 @@ int main()
 
 			Note bestCandidate;
 			bestCandidate.a4Offset = OFFSET_NOT_A_NOTE;
+			bestCandidate.durationBeats = 0;
 
 			int i;
 			for (i = noteI; i == noteI || groupFlags[i - 1] == 1; ++i)

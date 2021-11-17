@@ -5,7 +5,7 @@ Project for playing .abc files on a HP 49/50 series calculators using the HPGCC 
 1. Setup the hpgcc environment using the (unofficial) guide available here: 
    
     http://sense.net/~egan/hpgcc/
-2. On the calculator create a directory for the executable and for the .abc files you intend to play. The preferable location is somewhere on the SD Card, as the total size of your music library may exceed the internal storage capacity
+2. On the calculator create a directory for the executable and for the .abc files you intend to play. The preferable location is somewhere on the SD Card, as the total size of your music library may exceed the internal storage capacity. If you intend to use the provided wrapper (see 'Automatic execution using a UserRPL wrapper') the directory must be /HPGCC with the executable named 'beepboop' and the .abc files in the /HPGCC/ABC subfolder
 3. Compile the main.c file using the provided Makefile or the one supplied with hpgcc:
    
     `make main.hp`
