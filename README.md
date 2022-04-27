@@ -1,5 +1,5 @@
 # hpgcc-beepboop
-Project for playing .abc files on a HP 49/50 series calculators using the HPGCC library
+Project for playing .abc files on HP 49/50 series calculators using the HPGCC library
 
 ## Cross compilation
 1. Setup the hpgcc environment using the (unofficial) guide available here: 
